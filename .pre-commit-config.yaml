@@ -1,0 +1,94 @@
+---
+default_language_version:
+  python: python3
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+      - id: check-ast
+      - id: check-added-large-files
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: check-symlinks
+      - id: detect-aws-credentials
+        args: ["--allow-missing-credentials"]
+      - id: detect-private-key
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      # Exclude vscode json to allow comments
+      - id: check-json
+        exclude: ^\.vscode/.*\.json$
+      - id: pretty-format-json
+        exclude: ^\.vscode/.*\.json$
+      - id: mixed-line-ending
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+      - id: check-yaml
+        exclude: .gitlab-ci.yml
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.37.1
+    hooks:
+      - id: yamllint
+        exclude: .pre-commit-config.yaml
+        args:
+          [
+            "-d {extends: relaxed, rules: {line-length: {max: 120, allow-non-breakable-words: true}}}",
+          ]
+  - repo: https://github.com/Lucas-C/pre-commit-hooks
+    rev: v1.5.1
+    hooks:
+      - id: forbid-crlf
+      - id: remove-crlf
+      - id: forbid-tabs
+        exclude: (Makefile|debian/rules)(\.in)?
+      - id: remove-tabs
+        exclude: (Makefile|debian/rules)(\.in)?
+        args: ["--whitespaces-count", "2"]
+  - repo: https://github.com/psf/black
+    rev: 24.1.0
+    hooks:
+      - id: black
+        args:
+          [
+            "--line-length=100",
+            '--exclude=/(\.git| \.hg| \.mypy_cache| \.tox| \.venv| _build| buck-out| build| dist)/',
+          ]
+  - repo: https://github.com/PyCQA/docformatter
+    rev: v1.7.7
+    hooks:
+      - id: docformatter
+        args:
+          [
+            "--in-place",
+            "--wrap-summaries=100",
+            "--wrap-descriptions=100",
+            "--blank",
+            "--pre-summary-newline",
+          ]
+  - repo: local # Running from local to include project dependencies
+    hooks:
+      - id: pylint
+        name: pylint
+        entry: pylint
+        language: system
+        types: [python]
+        require_serial: true
+        args: ["--recursive=y", "--rcfile=.pylintrc"]
+  - repo: https://github.com/PyCQA/flake8
+    rev: 7.3.0
+    hooks:
+      - id: flake8
+        args: ["--config=.flake8"]
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.8.6
+    hooks:
+      - id: bandit
+        exclude: ^test/
+        args: ["--configfile=bandit.yaml", "--quiet"]
+  - repo: https://github.com/syntaqx/git-hooks
+    rev: v0.0.18
+    hooks:
+      - id: shellcheck
+      - id: shfmt

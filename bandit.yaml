@@ -1,0 +1,1 @@
+skips: ["B404", "B101"]  # ignore issue raised about importing subprocess and asserts

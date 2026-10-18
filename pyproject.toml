@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "img2webp"
+version = "1.0.0"
+description = "Convert JPEG/PNG images to WebP (lossless by default) with optional aspect-ratio scaling and concurrent processing."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [{ name = "Arturo Crespo" }]
+keywords = ["webp", "image", "convert", "pillow", "cli"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Multimedia :: Graphics :: Graphics Conversion",
+    "Environment :: Console",
+]
+dependencies = [
+    "Pillow>=9.0",
+]
+
+[project.optional-dependencies]
+# Tkinter is part of the standard library but packaged separately on some
+# systems (e.g. Debian/Ubuntu: python3-tk). It cannot be installed from PyPI,
+# so this extra documents the desktop GUI dependency without a pip package.
+desktop = []
+dev = [
+    "pytest>=7.0",
+]
+
+[project.scripts]
+img2webp = "img2webp.cli:main"
+img2webp-web = "img2webp.webgui:main"
+img2webp-gui = "img2webp.desktop:main"
+
+[project.urls]
+Homepage = "https://example.com/img2webp"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

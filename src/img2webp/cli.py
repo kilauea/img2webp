@@ -106,6 +106,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Overwrite existing outputs (default: skip them).",
     )
     p.add_argument(
+        "--strip-metadata",
+        action="store_true",
+        help="Remove EXIF/ICC/XMP metadata from outputs "
+        "(default: preserve the source metadata).",
+    )
+    p.add_argument(
         "-r",
         "--report",
         type=Path,
@@ -141,6 +147,7 @@ def main(argv: list[str] | None = None) -> int:
         method=args.method,
         overwrite=args.overwrite,
         fmt=args.fmt,
+        strip_metadata=args.strip_metadata,
         thumbnail=args.thumbnail,
         thumbnail_quality=args.thumbnail_quality,
     )

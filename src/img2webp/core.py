@@ -86,6 +86,9 @@ class Options:
     overwrite: bool = False
     # Output format: "webp" (default) or "avif".
     fmt: str = FORMAT_WEBP
+    # When True, drop EXIF/ICC/XMP metadata from the output. Default False
+    # keeps the source metadata (orientation, color profile, etc.).
+    strip_metadata: bool = False
     # When set, also emit a thumbnail whose longest side is this many px.
     # Thumbnails are always lossy (lossless thumbnails defeat their purpose).
     thumbnail: int | None = None
@@ -239,6 +242,27 @@ def _normalize_mode(img: Image.Image) -> Image.Image:
     return img
 
 
+def extract_metadata(img: Image.Image) -> dict:
+    """
+    Collect EXIF/ICC/XMP metadata from an opened image as save kwargs.
+
+    Returns a dict with any of ``exif``, ``icc_profile``, ``xmp`` that are present on the source,
+    suitable for passing to ``Image.save``. Empty when the image carries no metadata.
+
+    """
+    meta: dict = {}
+    exif = img.info.get("exif")
+    if exif:
+        meta["exif"] = exif
+    icc = img.info.get("icc_profile")
+    if icc:
+        meta["icc_profile"] = icc
+    xmp = img.info.get("xmp")
+    if xmp:
+        meta["xmp"] = xmp
+    return meta
+
+
 def _save_image(  # pylint: disable=too-many-arguments
     img: Image.Image,
     dst: Path,
@@ -247,10 +271,11 @@ def _save_image(  # pylint: disable=too-many-arguments
     lossless: bool,
     quality: int,
     method: int,
+    metadata: dict | None = None,
 ) -> None:
-    """Save an image as WebP or AVIF, normalising its mode first."""
+    """Save an image as WebP or AVIF, normalising its mode and attaching metadata."""
     img = _normalize_mode(img)
-    save_kwargs: dict = {}
+    save_kwargs: dict = dict(metadata or {})
     if fmt == FORMAT_WEBP:
         save_kwargs["method"] = method
         if lossless:
@@ -301,6 +326,8 @@ def convert_one(job: Job, options: Options) -> Result:
 
         with Image.open(job.src) as img:
             img.load()
+            # Collect source metadata before resizing; keep it unless stripping.
+            metadata = {} if options.strip_metadata else extract_metadata(img)
             main = resize_image(img, options.max_width, options.max_height)
 
             _save_image(
@@ -310,11 +337,13 @@ def convert_one(job: Job, options: Options) -> Result:
                 lossless=options.lossless,
                 quality=options.quality,
                 method=options.method,
+                metadata=metadata,
             )
 
             if thumb_dst is not None:
                 # Thumbnail fits inside a square box of side ``thumbnail``.
                 # Derived from the already-resized main image; never upscaled.
+                # Thumbnails never carry metadata (they are derived previews).
                 thumb = resize_image(main, options.thumbnail, options.thumbnail)
                 _save_image(
                     thumb,

@@ -18,6 +18,8 @@ desktop GUI.
   output, sized to fit a square box (longest side), always lossy.
 - **Size-reduction report**: original size, new size, and reduction percentage
   per file plus totals, printed and optionally saved as text or CSV.
+- **Metadata control**: source EXIF/ICC/XMP metadata is preserved by default;
+  pass `--strip-metadata` to drop it.
 - **Alpha preserved**; existing outputs skipped unless you opt into overwrite.
 - Output written next to sources, or mirrored into an output directory.
 
@@ -67,6 +69,9 @@ img2webp ./photos -F avif -o ./out
 
 # Save a size-reduction report (CSV inferred from the extension)
 img2webp ./photos -o ./out -r report.csv
+
+# Remove EXIF/ICC/XMP metadata from the outputs
+img2webp ./photos -o ./out --strip-metadata
 ```
 
 ### Options
@@ -85,6 +90,7 @@ img2webp ./photos -o ./out -r report.csv
 | `--thumbnail-quality` | Thumbnail quality 0–100 (always lossy) | 80 |
 | `-j, --jobs` | Worker processes | CPU count |
 | `-f, --overwrite` | Overwrite existing outputs | skip |
+| `--strip-metadata` | Remove EXIF/ICC/XMP metadata from outputs | preserve |
 | `-r, --report` | Save a size-reduction report to PATH (`.csv` => CSV, else text) | off |
 | `--report-format` | Force report format (`text` or `csv`) regardless of extension | from extension |
 | `--version` | Print version | — |
@@ -201,6 +207,14 @@ support lossless and lossy modes and preserve alpha. AVIF usually produces
 smaller files than WebP at a comparable quality, at the cost of slower
 encoding. The shared `--method` (0=fast..6=best) maps onto AVIF's encoder speed
 so a higher value means a slower, better-compressing encode in either format.
+
+## Metadata
+
+By default the source image's EXIF, ICC color profile, and XMP metadata are
+copied to the output (so, for example, orientation and color handling are
+preserved). Pass `--strip-metadata` (or tick "Strip EXIF/ICC/XMP metadata" in
+the GUIs) to drop all of it. Thumbnails never carry metadata regardless of this
+setting, since they are derived previews.
 
 ## Lossless note
 

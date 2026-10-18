@@ -89,6 +89,8 @@ PAGE = """<!DOCTYPE html>
   <input type="text" id="report_path" placeholder="/path/to/report.txt"></label>
 <div class="inline" style="margin-top:0.75rem"><input type="checkbox" id="overwrite">
   <span>Overwrite existing outputs</span></div>
+<div class="inline"><input type="checkbox" id="strip_metadata">
+  <span>Strip EXIF/ICC/XMP metadata</span></div>
 <button id="go" onclick="convert()">Convert</button>
 <div id="out"></div>
 <script>
@@ -106,6 +108,7 @@ async function convert() {
     quality: Number(document.getElementById('quality').value),
     jobs: Number(document.getElementById('jobs').value),
     overwrite: document.getElementById('overwrite').checked,
+    strip_metadata: document.getElementById('strip_metadata').checked,
     report_path: document.getElementById('report_path').value.trim(),
   };
   if (!payload.input) { out.textContent = 'Please enter an input path.'; return; }
@@ -178,6 +181,7 @@ def run_conversion(payload: dict) -> dict:
         quality=int(payload.get("quality", 90)),
         overwrite=bool(payload.get("overwrite", False)),
         fmt=fmt,
+        strip_metadata=bool(payload.get("strip_metadata", False)),
         thumbnail=_parse_dim(payload.get("thumbnail")),
         thumbnail_quality=int(payload.get("thumbnail_quality", DEFAULT_THUMBNAIL_QUALITY)),
     )

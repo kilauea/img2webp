@@ -57,6 +57,7 @@ class App:
         self.quality_var = tk.StringVar(value="90")
         self.jobs_var = tk.StringVar(value="4")
         self.overwrite_var = tk.BooleanVar(value=False)
+        self.strip_metadata_var = tk.BooleanVar(value=False)
         self.report_var = tk.StringVar()
 
         self._build_ui()
@@ -108,6 +109,9 @@ class App:
         ttk.Entry(opts, textvariable=self.jobs_var, width=6).pack(side="left")
         ttk.Checkbutton(opts, text="Overwrite", variable=self.overwrite_var).pack(
             side="left", padx=16
+        )
+        ttk.Checkbutton(opts, text="Strip metadata", variable=self.strip_metadata_var).pack(
+            side="left"
         )
         self._toggle_quality()
 
@@ -184,6 +188,7 @@ class App:
                 quality=int(self.quality_var.get() or 90),
                 overwrite=self.overwrite_var.get(),
                 fmt=fmt,
+                strip_metadata=self.strip_metadata_var.get(),
                 thumbnail=self._parse_dim(self.thumb_var.get()),
             )
             options.validate()

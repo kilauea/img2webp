@@ -8,6 +8,7 @@ import urllib.request
 from http.server import ThreadingHTTPServer
 
 import pytest
+from PIL import Image
 
 from img2webp.webgui import Handler, _parse_dim, run_conversion
 
@@ -87,6 +88,24 @@ class TestRunConversion:
         assert result["report"]["saved_to"] == str(report_path)
         assert report_path.exists()
         assert report_path.read_text().startswith("source,output,")
+
+    def test_strip_metadata_option(self, tmp_path):
+        src_dir = tmp_path / "in"
+        src_dir.mkdir()
+        exif = Image.Exif()
+        exif[270] = "web-desc"
+        Image.new("RGB", (60, 40), (1, 2, 3)).save(src_dir / "a.jpg", exif=exif.tobytes())
+        out = tmp_path / "out"
+        run_conversion(
+            {
+                "input": str(src_dir),
+                "output": str(out),
+                "strip_metadata": True,
+                "overwrite": True,
+            }
+        )
+        with Image.open(out / "a.webp") as im:
+            assert not im.info.get("exif")
 
 
 class TestHttpServer:

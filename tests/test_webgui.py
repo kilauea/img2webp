@@ -55,6 +55,39 @@ class TestRunConversion:
         with pytest.raises(ValueError):
             run_conversion({"input": str(sample_tree), "lossless": False, "quality": 200})
 
+    def test_avif_format_and_report(self, sample_tree, tmp_path):
+        result = run_conversion(
+            {
+                "input": str(sample_tree),
+                "output": str(tmp_path / "out"),
+                "format": "avif",
+                "lossless": False,
+                "quality": 50,
+                "overwrite": True,
+                "jobs": 2,
+            }
+        )
+        assert result["ok"] is True
+        assert all(r["dst"].endswith(".avif") for r in result["results"])
+        rep = result["report"]
+        assert len(rep["rows"]) == 2
+        assert rep["total_original_bytes"] > 0
+        assert rep["saved_to"] is None
+
+    def test_report_saved_to_file(self, sample_tree, tmp_path):
+        report_path = tmp_path / "r.csv"
+        result = run_conversion(
+            {
+                "input": str(sample_tree),
+                "output": str(tmp_path / "out"),
+                "overwrite": True,
+                "report_path": str(report_path),
+            }
+        )
+        assert result["report"]["saved_to"] == str(report_path)
+        assert report_path.exists()
+        assert report_path.read_text().startswith("source,output,")
+
 
 class TestHttpServer:
     """End-to-end test against a real (ephemeral) server instance."""

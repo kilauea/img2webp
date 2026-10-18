@@ -16,7 +16,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from . import run_batch
-from .core import DEFAULT_THUMBNAIL_QUALITY, Options, discover_jobs, parse_optional_dim
+from . import report as report_mod
+from .core import (
+    DEFAULT_THUMBNAIL_QUALITY,
+    FORMAT_WEBP,
+    Options,
+    discover_jobs,
+    parse_optional_dim,
+)
 
 PAGE = """<!DOCTYPE html>
 <html lang="en">
@@ -46,12 +53,21 @@ PAGE = """<!DOCTYPE html>
 </style>
 </head>
 <body>
-<h1>img2webp &mdash; JPEG/PNG &rarr; WebP</h1>
+<h1>img2webp &mdash; JPEG/PNG &rarr; WebP / AVIF</h1>
 <p class="hint">Paths are resolved on the machine running this server.</p>
 <label>Input file or directory
   <input type="text" id="input" placeholder="/path/to/images"></label>
 <label>Output directory <span class="hint">(optional &mdash; blank writes next to sources)</span>
   <input type="text" id="output" placeholder="/path/to/output"></label>
+<div class="row">
+  <div><label>Output format
+    <select id="format">
+      <option value="webp" selected>WebP</option>
+      <option value="avif">AVIF</option>
+    </select></label></div>
+  <div><label>Concurrent jobs
+    <input type="number" id="jobs" min="1" value="4"></label></div>
+</div>
 <div class="row">
   <div><label>Max width (px) <span class="hint">optional</span>
     <input type="number" id="max_width" min="1" placeholder="e.g. 1920"></label></div>
@@ -67,14 +83,12 @@ PAGE = """<!DOCTYPE html>
 <label>Encoding</label>
 <div class="inline"><input type="checkbox" id="lossless" checked>
   <span>Lossless (uncheck for lossy)</span></div>
-<div class="row">
-  <div><label>Quality <span class="hint">(lossy only, 0-100)</span>
-    <input type="number" id="quality" min="0" max="100" value="90"></label></div>
-  <div><label>Concurrent jobs
-    <input type="number" id="jobs" min="1" value="4"></label></div>
-</div>
+<label>Quality <span class="hint">(lossy only, 0-100)</span>
+  <input type="number" id="quality" min="0" max="100" value="90"></label>
+<label>Save report to <span class="hint">(optional &mdash; .csv for CSV, else text)</span>
+  <input type="text" id="report_path" placeholder="/path/to/report.txt"></label>
 <div class="inline" style="margin-top:0.75rem"><input type="checkbox" id="overwrite">
-  <span>Overwrite existing .webp outputs</span></div>
+  <span>Overwrite existing outputs</span></div>
 <button id="go" onclick="convert()">Convert</button>
 <div id="out"></div>
 <script>
@@ -83,6 +97,7 @@ async function convert() {
   const payload = {
     input: document.getElementById('input').value.trim(),
     output: document.getElementById('output').value.trim(),
+    format: document.getElementById('format').value,
     max_width: document.getElementById('max_width').value,
     max_height: document.getElementById('max_height').value,
     thumbnail: document.getElementById('thumbnail').value,
@@ -91,6 +106,7 @@ async function convert() {
     quality: Number(document.getElementById('quality').value),
     jobs: Number(document.getElementById('jobs').value),
     overwrite: document.getElementById('overwrite').checked,
+    report_path: document.getElementById('report_path').value.trim(),
   };
   if (!payload.input) { out.textContent = 'Please enter an input path.'; return; }
   btn.disabled = true; out.textContent = 'Converting...';
@@ -105,10 +121,30 @@ async function convert() {
       escapeHtml(r.dst) + ' (' + escapeHtml(r.message) + ')</span>');
     lines.push(''); lines.push('Done. ' + data.succeeded + ' succeeded, ' +
       data.failed + ' failed.');
+    const rep = data.report;
+    if (rep && rep.rows && rep.rows.length) {
+      lines.push(''); lines.push('Size report:');
+      rep.rows.forEach(row => {
+        lines.push('  ' + escapeHtml(fileName(row.output)) + ': ' +
+          humanSize(row.original_bytes) + ' -> ' + humanSize(row.new_bytes) +
+          ' (' + row.reduction_pct.toFixed(1) + '%)');
+      });
+      lines.push('  TOTAL: ' + humanSize(rep.total_original_bytes) + ' -> ' +
+        humanSize(rep.total_new_bytes) + ' (' +
+        rep.total_reduction_pct.toFixed(1) + '%)');
+      if (rep.saved_to) { lines.push(''); lines.push('Report saved to ' +
+        escapeHtml(rep.saved_to)); }
+    }
     out.innerHTML = lines.join('\\n');
   } catch (e) {
     out.innerHTML = '<span class="fail">Request failed: ' + escapeHtml(String(e)) + '</span>';
   } finally { btn.disabled = false; }
+}
+function fileName(p) { return String(p).split('/').pop(); }
+function humanSize(n) {
+  let s = Number(n), u = ['B','KB','MB','GB','TB'], i = 0;
+  while (s >= 1024 && i < u.length - 1) { s /= 1024; i++; }
+  return (i === 0 ? s.toFixed(0) : s.toFixed(1)) + ' ' + u[i];
 }
 function escapeHtml(s) { return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;',
   '>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -133,6 +169,7 @@ def run_conversion(payload: dict) -> dict:
     input_path = Path(payload["input"]).expanduser()
     out_raw = (payload.get("output") or "").strip()
     output_dir = Path(out_raw).expanduser() if out_raw else None
+    fmt = (payload.get("format") or FORMAT_WEBP).strip() or FORMAT_WEBP
 
     options = Options(
         max_width=_parse_dim(payload.get("max_width")),
@@ -140,18 +177,28 @@ def run_conversion(payload: dict) -> dict:
         lossless=bool(payload.get("lossless", True)),
         quality=int(payload.get("quality", 90)),
         overwrite=bool(payload.get("overwrite", False)),
+        fmt=fmt,
         thumbnail=_parse_dim(payload.get("thumbnail")),
         thumbnail_quality=int(payload.get("thumbnail_quality", DEFAULT_THUMBNAIL_QUALITY)),
     )
     options.validate()
     workers = max(1, int(payload.get("jobs", 1)))
 
-    jobs = discover_jobs(input_path, output_dir)
+    jobs = discover_jobs(input_path, output_dir, fmt)
     if not jobs:
         raise ValueError("No supported images (.jpg/.jpeg/.png) found at that path.")
 
     results = run_batch(jobs, options, workers=workers)
     failed = sum(1 for r in results if not r.ok)
+
+    rep = report_mod.build_report(results)
+    saved_report = None
+    report_raw = (payload.get("report_path") or "").strip()
+    if report_raw:
+        report_path = Path(report_raw).expanduser()
+        report_fmt = payload.get("report_format") or report_mod.infer_format(report_path)
+        saved_report = str(report_mod.save_report(rep, report_path, report_fmt))
+
     return {
         "ok": True,
         "results": [
@@ -160,6 +207,14 @@ def run_conversion(payload: dict) -> dict:
         ],
         "succeeded": len(results) - failed,
         "failed": failed,
+        "report": {
+            "rows": report_mod.to_dicts(rep),
+            "total_original_bytes": rep.total_original,
+            "total_new_bytes": rep.total_new,
+            "total_reduction_pct": round(rep.total_reduction_pct, 2),
+            "summary": report_mod.summary_line(rep) if rep.rows else "",
+            "saved_to": saved_report,
+        },
     }
 
 

@@ -1,20 +1,23 @@
 # img2webp
 
-Convert JPEG and PNG images to **WebP**, lossless by default, with optional
-aspect-ratio-preserving downscaling and concurrent processing. Ships with three
-interfaces: a command-line tool, a local web GUI, and a native desktop GUI.
+Convert JPEG and PNG images to **WebP** or **AVIF**, lossless by default, with
+optional aspect-ratio-preserving downscaling and concurrent processing. Ships
+with three interfaces: a command-line tool, a local web GUI, and a native
+desktop GUI.
 
 ## Features
 
-- **JPEG/PNG → WebP**, lossless by default (lossy mode available).
+- **JPEG/PNG → WebP or AVIF**, lossless by default (lossy mode available).
 - **Scale, not crop**: cap the max width and/or height while preserving aspect
   ratio. When both are given, the image is scaled to fit inside the box. Images
   are never upscaled.
 - **Single file or recursive directory** input; non-image files are ignored.
 - **Concurrent** conversion via a process pool (true parallelism for CPU-bound
   encoding).
-- **Thumbnails**: optionally emit a small `<name>.thumb.webp` alongside each
+- **Thumbnails**: optionally emit a small `<name>.thumb.<ext>` alongside each
   output, sized to fit a square box (longest side), always lossy.
+- **Size-reduction report**: original size, new size, and reduction percentage
+  per file plus totals, printed and optionally saved as text or CSV.
 - **Alpha preserved**; existing outputs skipped unless you opt into overwrite.
 - Output written next to sources, or mirrored into an output directory.
 
@@ -58,6 +61,12 @@ img2webp ./photos --lossy -q 85 -j 8 -f
 
 # Also generate 256px thumbnails (photo.webp + photo.thumb.webp)
 img2webp ./photos -o ./out -t 256
+
+# Convert to AVIF instead of WebP
+img2webp ./photos -F avif -o ./out
+
+# Save a size-reduction report (CSV inferred from the extension)
+img2webp ./photos -o ./out -r report.csv
 ```
 
 ### Options
@@ -65,16 +74,19 @@ img2webp ./photos -o ./out -t 256
 | Flag | Description | Default |
 |------|-------------|---------|
 | `input` | Image file or directory (positional) | — |
+| `-F, --format` | Output format: `webp` or `avif` | webp |
 | `-o, --output-dir` | Output directory (tree mirrored) | alongside sources |
 | `-W, --max-width` | Max width in px (scales, preserves ratio) | none |
 | `-H, --max-height` | Max height in px (scales, preserves ratio) | none |
-| `--lossy` | Use lossy WebP instead of lossless | lossless |
+| `--lossy` | Use lossy encoding instead of lossless | lossless |
 | `-q, --quality` | Quality 0–100 (lossy mode) | 90 |
 | `--method` | Encoder effort 0 (fast) – 6 (best) | 6 |
-| `-t, --thumbnail` | Also emit `<name>.thumb.webp`; value is the thumbnail's longest side in px | off |
+| `-t, --thumbnail` | Also emit `<name>.thumb.<ext>`; value is the thumbnail's longest side in px | off |
 | `--thumbnail-quality` | Thumbnail quality 0–100 (always lossy) | 80 |
 | `-j, --jobs` | Worker processes | CPU count |
-| `-f, --overwrite` | Overwrite existing `.webp` outputs | skip |
+| `-f, --overwrite` | Overwrite existing outputs | skip |
+| `-r, --report` | Save a size-reduction report to PATH (`.csv` => CSV, else text) | off |
+| `--report-format` | Force report format (`text` or `csv`) regardless of extension | from extension |
 | `--version` | Print version | — |
 
 Exit codes: `0` all succeeded, `1` some failed or no images found, `2` invalid
@@ -149,6 +161,7 @@ img2webp/
 ├── src/img2webp/
 │   ├── core.py                # conversion logic (shared by all front ends)
 │   ├── __init__.py            # public API + run_batch
+│   ├── report.py              # size-reduction report (text/CSV)
 │   ├── cli.py                 # command line
 │   ├── webgui.py              # local web GUI
 │   └── desktop.py             # native Tkinter GUI
@@ -163,12 +176,38 @@ inside the bounding box with its aspect ratio intact. If the image already fits,
 it is left untouched (no upscaling). Example: a 3000×2000 image with
 `-W 1024` becomes 1024×683.
 
+## Size-reduction report
+
+Every run prints a per-file table of original size, new size, and reduction
+percentage, plus a total row:
+
+```
+File         Original         New  Reduction
+---------  ----------  ----------  ---------
+photo.jpg     46.5 KB       475 B      99.0%
+---------  ----------  ----------  ---------
+TOTAL         46.5 KB       475 B      99.0%
+```
+
+Pass `-r/--report PATH` to also save it. The format is inferred from the
+extension (`.csv` => CSV, otherwise a text table) unless you force it with
+`--report-format`. Skipped and failed files are excluded so the figures stay
+meaningful. The web and desktop GUIs show the same report and offer a save path.
+
+## Output formats
+
+Choose the output format with `-F/--format` (`webp` default, or `avif`). Both
+support lossless and lossy modes and preserve alpha. AVIF usually produces
+smaller files than WebP at a comparable quality, at the cost of slower
+encoding. The shared `--method` (0=fast..6=best) maps onto AVIF's encoder speed
+so a higher value means a slower, better-compressing encode in either format.
+
 ## Lossless note
 
-In lossless mode the decoded WebP is pixel-identical to the (optionally resized)
-source — verified in the test suite with a pixel-difference check. Lossless WebP
-typically produces larger files than lossy; use `--lossy -q <n>` when size
-matters more than exactness.
+In lossless mode the decoded output is pixel-identical to the (optionally
+resized) source — verified in the test suite with a pixel-difference check.
+Lossless typically produces larger files than lossy; use `--lossy -q <n>` when
+size matters more than exactness.
 
 ## License
 

@@ -19,7 +19,8 @@ import threading
 from pathlib import Path
 
 from . import run_batch
-from .core import Options, discover_jobs, parse_optional_dim
+from . import report as report_mod
+from .core import FORMAT_AVIF, FORMAT_WEBP, Options, discover_jobs, parse_optional_dim
 
 try:
     import tkinter as tk  # pylint: disable=import-error
@@ -48,6 +49,7 @@ class App:
 
         self.input_var = tk.StringVar()
         self.output_var = tk.StringVar()
+        self.format_var = tk.StringVar(value=FORMAT_WEBP)
         self.width_var = tk.StringVar()
         self.height_var = tk.StringVar()
         self.thumb_var = tk.StringVar()
@@ -55,6 +57,7 @@ class App:
         self.quality_var = tk.StringVar(value="90")
         self.jobs_var = tk.StringVar(value="4")
         self.overwrite_var = tk.BooleanVar(value=False)
+        self.report_var = tk.StringVar()
 
         self._build_ui()
 
@@ -87,6 +90,14 @@ class App:
 
         opts = ttk.Frame(frm)
         opts.grid(row=3, column=0, columnspan=3, sticky="ew", **pad)
+        ttk.Label(opts, text="Format").pack(side="left")
+        ttk.Combobox(
+            opts,
+            textvariable=self.format_var,
+            values=[FORMAT_WEBP, FORMAT_AVIF],
+            width=6,
+            state="readonly",
+        ).pack(side="left", padx=(4, 16))
         ttk.Checkbutton(
             opts, text="Lossless", variable=self.lossless_var, command=self._toggle_quality
         ).pack(side="left")
@@ -100,16 +111,20 @@ class App:
         )
         self._toggle_quality()
 
+        ttk.Label(frm, text="Save report to (optional)").grid(row=4, column=0, sticky="w", **pad)
+        ttk.Entry(frm, textvariable=self.report_var).grid(row=4, column=1, sticky="ew", **pad)
+        ttk.Button(frm, text="File…", command=self._pick_report).grid(row=4, column=2, **pad)
+
         self.convert_btn = ttk.Button(frm, text="Convert", command=self._start)
-        self.convert_btn.grid(row=4, column=0, columnspan=3, pady=(8, 4))
+        self.convert_btn.grid(row=5, column=0, columnspan=3, pady=(8, 4))
 
         self.progress = ttk.Progressbar(frm, mode="determinate")
-        self.progress.grid(row=5, column=0, columnspan=3, sticky="ew", **pad)
+        self.progress.grid(row=6, column=0, columnspan=3, sticky="ew", **pad)
 
-        ttk.Label(frm, text="Log").grid(row=6, column=0, sticky="w", **pad)
+        ttk.Label(frm, text="Log").grid(row=7, column=0, sticky="w", **pad)
         self.log = tk.Text(frm, height=12, wrap="none")
-        self.log.grid(row=7, column=0, columnspan=3, sticky="nsew", **pad)
-        frm.rowconfigure(7, weight=1)
+        self.log.grid(row=8, column=0, columnspan=3, sticky="nsew", **pad)
+        frm.rowconfigure(8, weight=1)
 
     # --- helpers ---------------------------------------------------------
     def _toggle_quality(self) -> None:
@@ -134,6 +149,15 @@ class App:
         if path:
             self.output_var.set(path)
 
+    def _pick_report(self) -> None:
+        path = filedialog.asksaveasfilename(
+            title="Save report as",
+            defaultextension=".txt",
+            filetypes=[("Text", "*.txt"), ("CSV", "*.csv"), ("All files", "*.*")],
+        )
+        if path:
+            self.report_var.set(path)
+
     def _log(self, text: str) -> None:
         self.log.insert("end", text + "\n")
         self.log.see("end")
@@ -152,17 +176,19 @@ class App:
                 raise ValueError("Please choose an input file or folder.")
             out_raw = self.output_var.get().strip()
             output_dir = Path(out_raw).expanduser() if out_raw else None
+            fmt = self.format_var.get() or FORMAT_WEBP
             options = Options(
                 max_width=self._parse_dim(self.width_var.get()),
                 max_height=self._parse_dim(self.height_var.get()),
                 lossless=self.lossless_var.get(),
                 quality=int(self.quality_var.get() or 90),
                 overwrite=self.overwrite_var.get(),
+                fmt=fmt,
                 thumbnail=self._parse_dim(self.thumb_var.get()),
             )
             options.validate()
             workers = max(1, int(self.jobs_var.get() or 1))
-            jobs = discover_jobs(input_path, output_dir)
+            jobs = discover_jobs(input_path, output_dir, fmt)
             if not jobs:
                 raise ValueError("No supported images (.jpg/.jpeg/.png) found.")
         except (ValueError, FileNotFoundError) as exc:
@@ -183,13 +209,30 @@ class App:
     def _run(self, jobs, options, workers) -> None:
         """Runs in the background thread; pushes events onto the queue."""
         try:
-            run_batch(
+            results = run_batch(
                 jobs, options, workers=workers, on_result=lambda r: self._queue.put(("result", r))
             )
-            self._queue.put(("done", None))
+            self._queue.put(("done", results))
         # Report any failure to the UI thread rather than killing the worker.
         except Exception as exc:  # pragma: no cover  # pylint: disable=broad-exception-caught
             self._queue.put(("error", str(exc)))
+
+    def _finish(self, results) -> None:
+        """Render the size report and optionally save it (Tk main thread)."""
+        rep = report_mod.build_report(results)
+        if rep.rows:
+            self._log("")
+            self._log(report_mod.render_text(rep))
+            report_raw = self.report_var.get().strip()
+            if report_raw:
+                path = Path(report_raw).expanduser()
+                fmt = report_mod.infer_format(path)
+                try:
+                    saved = report_mod.save_report(rep, path, fmt)
+                    self._log(f"\nReport saved to {saved} ({fmt}).")
+                except (OSError, ValueError) as exc:
+                    messagebox.showerror("img2webp", f"Could not save report: {exc}")
+        self.convert_btn.configure(state="normal")
 
     def _drain_queue(self) -> None:
         """Runs on the Tk main thread; applies queued events to widgets."""
@@ -203,7 +246,7 @@ class App:
                     self.progress.step(1)
                 elif kind == "done":
                     self._log("Done.")
-                    self.convert_btn.configure(state="normal")
+                    self._finish(payload)
                     return
                 elif kind == "error":
                     messagebox.showerror("img2webp", payload)

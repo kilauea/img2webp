@@ -71,3 +71,6 @@ package-lock.json
 
 docs/CHANGELOG.md*
 docs/_generated/
+
+# Kiro specs/steering kept locally, not published
+.kiro/
